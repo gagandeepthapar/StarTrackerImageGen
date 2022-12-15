@@ -1,0 +1,10 @@
+{
+    "CATALOG_TYPE": "BSC5",
+    "CATALOG_FILE": "./../BSC5",
+    "IMAGE_X": 2064,
+    "IMAGE_Y": 1544,
+    "FOV": 20,
+    "MAX_MAG": 5,
+    "FOCAL_LENGTH": 0.012,
+    "PIXEL_SIZE": 0.00000345
+}
