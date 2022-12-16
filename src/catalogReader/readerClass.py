@@ -8,7 +8,7 @@ sys.path.append('../../')
 import pandas as pd
 import numpy
 import matplotlib.pyplot as plt
-from python_scripts.constants import *
+from StarTrackerImageGen.constants import *
 
 """ 
 This file contains the class to read an arbitrary object

@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+import argparse
 
 import random
 
@@ -12,7 +13,6 @@ from catalogReader.star import YaleStar
 import json
 
 PI = np.pi
-MAXMAG = 5
 
 def set_ECI_vector_x(row:pd.Series)->pd.Series:
 
@@ -227,7 +227,7 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
 
     # copy list and update parameters
     fstars = starlist.copy()
-    fstars = fstars.drop(columns=['spectral_type_a', 'spectral_type_b', 'v_magnitude', 'ascension_proper_motion', 'declination_proper_motion'])
+    fstars = fstars.drop(columns=['spectral_type_a', 'spectral_type_b','v_magnitude', 'ascension_proper_motion', 'declination_proper_motion'])
     
     ra = ra * PI/180
     dec = dec * PI/180
@@ -237,13 +237,14 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
     camera_fov = cfg['FOV'] * PI/180
     img_wd = cfg['IMAGE_X']
     img_ht = cfg['IMAGE_Y']
+    cam_mag = cfg['MAX_MAG']
 
-    exp_star_ct = np.round(6.57*np.e**(1.08*MAXMAG)*(1-np.cos(camera_fov/2))/2,2)
+    # exp_star_ct = np.round(6.57*np.e**(1.08*cam_mag)*(1-np.cos(camera_fov/2))/2,2)
 
-    print(f'Image Size: {img_wd}x{img_ht}')
-    print(f'FOV: {camera_fov}')
-    print(f'Initial Starlist Length: {len(fstars.index)}')
-    print(f'Expected Number of Stars in Image (PPM Catalog): {exp_star_ct}')
+    print(f'\n\tImage Size: {img_wd}x{img_ht}')
+    print(f'\tFOV: {camera_fov*180/PI} deg')
+    print(f'\tInitial Starlist Length: {len(fstars.index)}\n')
+    # print(f'Expected Number of Stars in Image (PPM Catalog): {exp_star_ct}')
 
     # set ECI vectors
     fstars['ECI_X'] = fstars.apply(set_ECI_vector_x, axis=1)
@@ -264,7 +265,6 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
     plt = plot_sphere(fstars, ra, dec, roll, camera_fov, img_wd, img_ht)
 
     # remove out of image stars
-    print(fstars.to_string())
     fstars = remove_out_of_image_stars(fstars, img_wd, img_ht)
 
     # print starlist information; store information to csv
@@ -348,7 +348,7 @@ def plot_sphere(starlist:pd.DataFrame, ra:float, dec:float, roll:float, fov:floa
     cb = ax.plot3D(np.array([0, 1]), np.array([0, 0]), np.array([0, 0]), color='blue')
     ax.plot_surface(rel_cone[0], rel_cone[1], rel_cone[2], color='blue', alpha=0.5) 
 
-    title = 'Celestial Sphere\nPointing at ({:.2f}\u00b0, {:.2f}\u00b0, {:.2f}\u00b0), Mv = {:.1f}'.format(ra*180/PI, dec*180/PI, roll*180/PI, MAXMAG)
+    title = 'Celestial Sphere\nPointing at ({:.2f}\u00b0, {:.2f}\u00b0, {:.2f}\u00b0)'.format(ra*180/PI, dec*180/PI, roll*180/PI)
 
     ax.axis('equal')
     ax.set_title(title)
@@ -394,7 +394,7 @@ def plot_sphere(starlist:pd.DataFrame, ra:float, dec:float, roll:float, fov:floa
     ax.axis('equal')
     ax.set_xlabel('Relative Right Ascension, deg')
     ax.set_ylabel('Relative Declination, deg')
-    ax.legend()
+    # ax.legend()
 
     title = '{} of {} Stars Captured in Image'.format(ct, len(starlist.index))
     ax.set_title(title)
@@ -420,7 +420,7 @@ def plot_sphere(starlist:pd.DataFrame, ra:float, dec:float, roll:float, fov:floa
             ax.annotate(label, (x, y+40), fontsize=7, color='red') 
 
     ax.axis('equal')
-    ax.legend()
+    # ax.legend()
     ax.set_xlabel('IMAGE X [Pixels]')
     ax.set_ylabel('IMAGE Y [Pixels]')
     delta = 10
@@ -428,26 +428,46 @@ def plot_sphere(starlist:pd.DataFrame, ra:float, dec:float, roll:float, fov:floa
     ax.set_ylim(0 - delta, img_ht + delta)
     return plt
 
+def parse_arguments()->argparse.Namespace:
+
+    parser = argparse.ArgumentParser(description="Set camera and simulation properties")
+
+    parser.add_argument('-fp', help='Set camera config filepath; Default: Alvium', type=str, default="camera_configs/simulated_alvium.json")
+    parser.add_argument('-ra', help='Set Right Ascension [deg]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))
+    parser.add_argument('-dec', help='Set Declination [dec]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))
+    parser.add_argument('-roll', help='Set Roll Angle [deg]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))    
+    parser.add_argument('-m', help='Set Min Magnitude; Default: Camera Specific', type=float, default=None)
+
+    args = parser.parse_args()
+
+    return args
+
 if __name__ == '__main__':
+    # parse arguments
+    args = parse_arguments()
+
     # read catalog
-    b = '../../BSC5'
+    b = '../BSC5'
     reader = CatalogReader(b, YaleHeader(), YaleStar())
     reader.read_file()
 
-    # prepare camera config file
-    cfg = json.load(open("camera_configs/simulated_alvium.json"))
+    # load in sim objects
+    cfg = json.load(open(args.fp))
     starlist = reader.starlist
 
-    # remove dim stars (to be moved up the process later)
-    starlist.star_frame = starlist.star_frame[starlist.star_frame['v_magnitude'] > 0]
-    starlist.star_frame = starlist.star_frame[starlist.star_frame['v_magnitude'] <= MAXMAG]
+    # initial filter on catalog
+    if args.m is None:
+        cam_mag = cfg['MAX_MAG']  
+    else:
+        cam_mag = args.m
 
-    # set boresight properties
-    ra = random.uniform(-180, 180)
-    dec = random.uniform(-180, 180)
-    roll = random.uniform(-180, 180)
-
+    starlist.star_frame = starlist.star_frame[starlist.star_frame['v_magnitude'] <= cam_mag]
+    
     # start projection process
-    print(f"Generating Projection Dataframe with parameters:\nra = {ra}\ndec = {dec}\nroll = {roll}")
-    driver(starlist.star_frame, ra, dec, roll, cfg)
+    ra = args.ra
+    dec = args.dec
+    roll = args.roll
+
+    print(f"Generating Projection Dataframe with parameters:\n\n\tRight Ascension: {ra}\n\tDeclination: {dec}\n\tRoll: {roll}\n\tMax Magnitude: {cam_mag}")
+    driver(starlist.star_frame, ra, dec, roll, cfg, showPlot=True)
 
