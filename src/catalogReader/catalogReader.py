@@ -13,14 +13,15 @@ class CatalogReader:
         self.star = star_type
         self.starlist = StarList(self.star.object_lens.keys())
 
-    def read_file(self) -> None:
+    def read_file(self, maxMag:float=1000) -> None:
         fp = open(self.path_to_file, 'rb')
         self.header.read_header(catalog_file_pointer=fp)
         self.starlist.num_stars = self.header.num_stars
         
         for i in range(int(self.starlist.num_stars)):
             star_series = pd.DataFrame(self.star.read_star(fp))
-            self.starlist.add_to_frame(star_series=star_series)
+            if star_series.iloc[0]['v_magnitude'] <= maxMag:
+                self.starlist.add_to_frame(star_series=star_series)
             # print(f'{i}/{int(self.starlist.num_stars/10)}')
 
         fp.close()

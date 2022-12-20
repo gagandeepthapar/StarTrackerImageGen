@@ -1,7 +1,9 @@
 from io import BufferedReader
+from typing import overload
+import pandas as pd
+import numpy as np
 from .readerClass import GenericReader
 import struct
-from StarTrackerImageGen.constants import Epoch
 
 class GenericStar(GenericReader):
 

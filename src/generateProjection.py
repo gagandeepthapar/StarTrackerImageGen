@@ -1,18 +1,19 @@
-import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-from matplotlib.patches import Rectangle
 import argparse
-
+import json
 import random
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.patches import Rectangle
 
 from catalogReader.catalogReader import CatalogReader
 from catalogReader.headerFormats import YaleHeader
 from catalogReader.star import YaleStar
-
-import json
+from python_scripts import constants
 
 PI = np.pi
+MAXMAG = 5
 
 def set_ECI_vector_x(row:pd.Series)->pd.Series:
 
@@ -210,7 +211,7 @@ def remove_out_of_image_stars(starlist:pd.DataFrame, img_wd:int, img_ht:int)->pd
 
     return in_image
 
-def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dict=None, showPlot:bool=False)->pd.DataFrame:
+def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dict=None, showPlot:bool=False, saveFrame:str=None)->pd.DataFrame:
     """main code to generate dataframe with star image coords
 
     Args:
@@ -227,7 +228,6 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
 
     # copy list and update parameters
     fstars = starlist.copy()
-    fstars = fstars.drop(columns=['spectral_type_a', 'spectral_type_b','v_magnitude', 'ascension_proper_motion', 'declination_proper_motion'])
     
     ra = ra * PI/180
     dec = dec * PI/180
@@ -237,14 +237,10 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
     camera_fov = cfg['FOV'] * PI/180
     img_wd = cfg['IMAGE_X']
     img_ht = cfg['IMAGE_Y']
-    cam_mag = cfg['MAX_MAG']
 
-    # exp_star_ct = np.round(6.57*np.e**(1.08*cam_mag)*(1-np.cos(camera_fov/2))/2,2)
-
-    print(f'\n\tImage Size: {img_wd}x{img_ht}')
-    print(f'\tFOV: {camera_fov*180/PI} deg')
+    print(f'\tImage Size: {img_wd}x{img_ht}')
+    print(f'\tFOV: {camera_fov*180/PI}')
     print(f'\tInitial Starlist Length: {len(fstars.index)}\n')
-    # print(f'Expected Number of Stars in Image (PPM Catalog): {exp_star_ct}')
 
     # set ECI vectors
     fstars['ECI_X'] = fstars.apply(set_ECI_vector_x, axis=1)
@@ -262,19 +258,31 @@ def driver(starlist:pd.DataFrame, ra:float=0, dec:float=0, roll:float=0, cfg:dic
 
     # determine image coordinates
     fstars = set_image_coordinates(fstars, img_wd, img_ht, camera_fov)
-    plt = plot_sphere(fstars, ra, dec, roll, camera_fov, img_wd, img_ht)
+    
+    if showPlot:
+        plt = plot_sphere(fstars, ra, dec, roll, camera_fov, img_wd, img_ht)
 
     # remove out of image stars
     fstars = remove_out_of_image_stars(fstars, img_wd, img_ht)
 
     # print starlist information; store information to csv
-    print(f'Final Starlist Length: {len(fstars.index)}')
+    print(f'\tFinal Starlist Length: {len(fstars.index)}\n')
     print(fstars.to_string())
-    fstars.to_csv(r'./starlisttocsv.csv', sep='\t', encoding='utf-8', header='true')
+
     
     if showPlot:
         plt.show()
-    return
+    
+    if saveFrame is not None:
+        if saveFrame[-4:] == '.pkl':
+            saveFrame = saveFrame[:-4]
+        saveFrame = saveFrame + '_{}_{}_{}.pkl'.format(ra, dec, roll)
+        fstars.to_pickle(saveFrame)
+
+        fname = saveFrame + '_{}_{}_{}.csv'.format(ra, dec, roll)
+        fstars.to_csv(fname, sep='\t', encoding='utf-8', header='true')
+
+    return fstars
 
 def plot_sphere(starlist:pd.DataFrame, ra:float, dec:float, roll:float, fov:float, img_wd:int, img_ht:int):
 
@@ -432,42 +440,50 @@ def parse_arguments()->argparse.Namespace:
 
     parser = argparse.ArgumentParser(description="Set camera and simulation properties")
 
-    parser.add_argument('-fp', help='Set camera config filepath; Default: Alvium', type=str, default="camera_configs/simulated_alvium.json")
+    parser.add_argument('-fp', help='Set camera config filepath; Default: Alvium', type=str, default=constants.DEFAULT_ALVIUM)
     parser.add_argument('-ra', help='Set Right Ascension [deg]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))
     parser.add_argument('-dec', help='Set Declination [dec]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))
     parser.add_argument('-roll', help='Set Roll Angle [deg]; Default: Random [-180, 180]', type=float, default=random.uniform(-180, 180))    
     parser.add_argument('-m', help='Set Min Magnitude; Default: Camera Specific', type=float, default=None)
+    parser.add_argument('-p', help='Show/Hide Plot (0/1)', type=int, default=1)
+    parser.add_argument('-s', help='Filepath to save dataframe (opt); Default: N/A', type=str, default=None)
 
     args = parser.parse_args()
 
     return args
 
+def generate_projection(ra:float=random.uniform(-180,180),
+                        dec:float=random.uniform(-180, 180),
+                        roll:float=random.uniform(-180, 180),
+                        cfg_fp:str=constants.DEFAULT_ALVIUM,
+                        catpkl_fp:str=constants.YBSC_PATH,
+                        camera_mag:float=None,
+                        plot:bool=False,
+                        save:str=None)->pd.DataFrame:
+
+    # prepare camera config file
+    cfg = json.load(open(cfg_fp))    
+    star_frame = pd.read_pickle(catpkl_fp)
+
+    # remove dim stars (to be moved up the process later)
+    if camera_mag is None:
+        camera_mag = cfg['MAX_MAG']
+    star_frame = star_frame[star_frame['v_magnitude'] <= camera_mag]
+
+    # start projection process
+    print(f"Generating Projection Dataframe with parameters:\n\tRight Ascension = {ra}\n\tDeclination = {dec}\n\tRoll = {roll}\n\tPlotting: {plot}")
+    fstars = driver(star_frame, ra, dec, roll, cfg, showPlot=plot, saveFrame=save)
+
+    return fstars
+
 if __name__ == '__main__':
-    # parse arguments
     args = parse_arguments()
 
-    # read catalog
-    b = '../BSC5'
-    reader = CatalogReader(b, YaleHeader(), YaleStar())
-    reader.read_file()
-
-    # load in sim objects
-    cfg = json.load(open(args.fp))
-    starlist = reader.starlist
-
-    # initial filter on catalog
-    if args.m is None:
-        cam_mag = cfg['MAX_MAG']  
-    else:
-        cam_mag = args.m
-
-    starlist.star_frame = starlist.star_frame[starlist.star_frame['v_magnitude'] <= cam_mag]
-    
-    # start projection process
-    ra = args.ra
-    dec = args.dec
-    roll = args.roll
-
-    print(f"Generating Projection Dataframe with parameters:\n\n\tRight Ascension: {ra}\n\tDeclination: {dec}\n\tRoll: {roll}\n\tMax Magnitude: {cam_mag}")
-    driver(starlist.star_frame, ra, dec, roll, cfg, showPlot=True)
+    generate_projection(ra=args.ra,
+         dec=args.dec,
+         roll=args.roll,
+         cfg_fp=args.fp,
+         camera_mag= args.m,
+         plot=bool(args.p),
+         save=args.s)
 
